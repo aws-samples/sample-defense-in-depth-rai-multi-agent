@@ -1,0 +1,27 @@
+{
+  "app": "npx ts-node --prefer-ts-exts bin/app.ts",
+  "context": {
+    "config": {
+      "prefix": "rai",
+      "environment": "dev",
+      "region": "us-east-1",
+      "guardrail": {
+        "groundingThreshold": 0.7,
+        "relevanceThreshold": 0.7
+      },
+      "delegation": {
+        "maxActions": 10,
+        "maxTimeoutSeconds": 300,
+        "fidelityThreshold": 0.7
+      },
+      "fairness": {
+        "parityDivergenceThreshold": 0.3
+      },
+      "alarms": {
+        "guardrailInterventionThreshold": 50,
+        "fidelityFailureThreshold": 1,
+        "trustViolationThreshold": 1
+      }
+    }
+  }
+}
