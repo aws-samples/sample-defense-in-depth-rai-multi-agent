@@ -1,0 +1,38 @@
+{
+  "name": "sample-defense-in-depth-rai-multi-agent",
+  "version": "1.0.0",
+  "description": "Unified Defense-in-Depth Responsible AI for Multi-Agent Collaboration \u2014 Single-agent governance + inter-agent delegation governance",
+  "bin": {
+    "sample-responsible-ai-multi-agent": "bin/app.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "cdk": "cdk",
+    "synth": "cdk synth",
+    "deploy": "cdk deploy --all --require-approval never",
+    "destroy": "cdk destroy --all --force",
+    "postinstall": "node scripts/patch-bundled-deps.js"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "2.257.0",
+    "@aws-cdk/aws-bedrock-alpha": "2.257.0-alpha.0",
+    "@aws-cdk/aws-bedrock-agentcore-alpha": "2.257.0-alpha.0",
+    "constructs": "^10.0.0",
+    "source-map-support": "^0.5.21"
+  },
+  "devDependencies": {
+    "@types/node": "22.x",
+    "typescript": "~5.6.0",
+    "ts-node": "^10.9.0",
+    "aws-cdk": "2.1125.0"
+  },
+  "overrides": {
+    "fast-uri": ">=3.0.6",
+    "brace-expansion": ">=2.0.2",
+    "yaml": ">=2.7.1",
+    "aws-cdk-lib": {
+      "brace-expansion": "5.0.6"
+    }
+  }
+}
