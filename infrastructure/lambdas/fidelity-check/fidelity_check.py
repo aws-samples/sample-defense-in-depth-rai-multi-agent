@@ -36,7 +36,13 @@ def compute_fidelity_hash(text: str) -> str:
 
 
 def check_contextual_grounding(source_text: str, output_text: str) -> dict:
-    """Use Bedrock Guardrails contextual grounding to verify fidelity."""
+    """Use Bedrock Guardrails contextual grounding to verify fidelity.
+
+    Contextual grounding requires three content blocks:
+    - grounding_source: the reference data (upstream agent output)
+    - query: the original user request
+    - guard_content: the downstream agent output to evaluate
+    """
     if not GUARDRAIL_ID:
         return {"score": 1.0, "action": "NONE", "reason": "Guardrail not configured"}
 
@@ -48,10 +54,22 @@ def check_contextual_grounding(source_text: str, output_text: str) -> dict:
             content=[
                 {
                     "text": {
-                        "text": output_text,
+                        "text": source_text,
                         "qualifiers": ["grounding_source"],
                     }
-                }
+                },
+                {
+                    "text": {
+                        "text": source_text,
+                        "qualifiers": ["query"],
+                    }
+                },
+                {
+                    "text": {
+                        "text": output_text,
+                        "qualifiers": ["guard_content"],
+                    }
+                },
             ],
         )
 

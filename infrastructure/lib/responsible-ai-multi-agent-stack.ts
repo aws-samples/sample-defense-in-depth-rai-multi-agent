@@ -1,6 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as sns from "aws-cdk-lib/aws-sns";
+import * as kms from "aws-cdk-lib/aws-kms";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as cloudwatch_actions from "aws-cdk-lib/aws-cloudwatch-actions";
 import * as logs from "aws-cdk-lib/aws-logs";
@@ -45,6 +46,38 @@ export class ResponsibleAiMultiAgentStack extends cdk.Stack {
     const guardrailInterventionThreshold = alarmsConfig.guardrailInterventionThreshold ?? 50;
     const fidelityFailureThreshold = alarmsConfig.fidelityFailureThreshold ?? 1;
     const trustViolationThreshold = alarmsConfig.trustViolationThreshold ?? 1;
+
+    // ================================================================
+    // Shared KMS key for encryption at rest (DynamoDB, Logs, SNS)
+    // Addresses cfn-nag W74, W84, W47
+    // ================================================================
+    const encryptionKey = new kms.Key(this, "RaiEncryptionKey", {
+      alias: `${p}-encryption-key`,
+      description: "Encryption key for RAI multi-agent governance resources",
+      enableKeyRotation: true,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // Grant CloudWatch Logs permission to use the KMS key
+    encryptionKey.addToResourcePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        principals: [new iam.ServicePrincipal(`logs.${this.region}.amazonaws.com`)],
+        actions: [
+          "kms:Encrypt*",
+          "kms:Decrypt*",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:Describe*",
+        ],
+        resources: ["*"],
+        conditions: {
+          ArnLike: {
+            "kms:EncryptionContext:aws:logs:arn": `arn:aws:logs:${this.region}:${this.account}:log-group:/${p}/*`,
+          },
+        },
+      })
+    );
 
     // ================================================================
     // LAYER 1: Content Safety — Amazon Bedrock Guardrails
@@ -218,6 +251,8 @@ export class ResponsibleAiMultiAgentStack extends cdk.Stack {
       pointInTimeRecovery: true, // Immutable audit — regulatory retention
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       timeToLiveAttribute: "ttl",
+      encryption: dynamodb.TableEncryption.CUSTOMER_MANAGED,
+      encryptionKey: encryptionKey,
     });
     auditTable.addGlobalSecondaryIndex({
       indexName: "by-session",
@@ -250,8 +285,15 @@ export class ResponsibleAiMultiAgentStack extends cdk.Stack {
     fidelityCheckLambda.addToRolePolicy(
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
-        actions: ["bedrock-runtime:ApplyGuardrail", "bedrock:InvokeModel", "cloudwatch:PutMetricData"],
-        resources: ["*"],
+        actions: ["bedrock:ApplyGuardrail"],
+        resources: [guardrail.guardrailArn],
+      })
+    );
+    fidelityCheckLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ["cloudwatch:PutMetricData"],
+        resources: ["*"], // CloudWatch PutMetricData does not support resource-level permissions
       })
     );
     auditTable.grantWriteData(fidelityCheckLambda);
@@ -276,9 +318,12 @@ export class ResponsibleAiMultiAgentStack extends cdk.Stack {
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
         actions: ["cloudwatch:PutMetricData"],
-        resources: ["*"],
+        resources: ["*"], // CloudWatch PutMetricData does not support resource-level permissions
       })
     );
+    // cfn-nag suppression: CloudWatch PutMetricData requires * resource
+    const delegationValidatorPolicy = delegationValidatorLambda.node.findChild("ServiceRole").node.findChild("DefaultPolicy").node.defaultChild as cdk.CfnResource;
+    delegationValidatorPolicy.addMetadata("cfn_nag", { rules_to_suppress: [{ id: "W12", reason: "CloudWatch PutMetricData does not support resource-level permissions" }] });
 
     // --- Contradiction Detection Lambda ---
     const contradictionDetectorLambda = new lambda.Function(this, "ContradictionDetectorLambda", {
@@ -297,8 +342,18 @@ export class ResponsibleAiMultiAgentStack extends cdk.Stack {
     contradictionDetectorLambda.addToRolePolicy(
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
-        actions: ["bedrock:InvokeModel", "cloudwatch:PutMetricData"],
-        resources: ["*"],
+        actions: ["bedrock:InvokeModel"],
+        resources: [
+          `arn:aws:bedrock:*::foundation-model/*`,
+          `arn:aws:bedrock:*:${this.account}:inference-profile/*`,
+        ],
+      })
+    );
+    contradictionDetectorLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ["cloudwatch:PutMetricData"],
+        resources: ["*"], // CloudWatch PutMetricData does not support resource-level permissions
       })
     );
     auditTable.grantReadWriteData(contradictionDetectorLambda);
@@ -328,7 +383,7 @@ export class ResponsibleAiMultiAgentStack extends cdk.Stack {
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
         actions: ["cloudwatch:PutMetricData"],
-        resources: ["*"],
+        resources: ["*"], // CloudWatch PutMetricData does not support resource-level permissions
       })
     );
 
@@ -349,7 +404,7 @@ export class ResponsibleAiMultiAgentStack extends cdk.Stack {
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
         actions: ["cloudwatch:PutMetricData"],
-        resources: ["*"],
+        resources: ["*"], // CloudWatch PutMetricData does not support resource-level permissions
       })
     );
 
@@ -370,7 +425,7 @@ export class ResponsibleAiMultiAgentStack extends cdk.Stack {
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
         actions: ["cloudwatch:PutMetricData"],
-        resources: ["*"],
+        resources: ["*"], // CloudWatch PutMetricData does not support resource-level permissions
       })
     );
 
@@ -466,6 +521,7 @@ export class ResponsibleAiMultiAgentStack extends cdk.Stack {
           logGroupName: `/${p}/orchestrator`,
           retention: logs.RetentionDays.ONE_YEAR,
           removalPolicy: cdk.RemovalPolicy.DESTROY,
+          encryptionKey: encryptionKey,
         }),
         level: sfn.LogLevel.ALL,
         includeExecutionData: true,
@@ -644,7 +700,7 @@ export class ResponsibleAiMultiAgentStack extends cdk.Stack {
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
         actions: ["cloudwatch:PutMetricData"],
-        resources: ["*"],
+        resources: ["*"], // CloudWatch PutMetricData does not support resource-level permissions
       })
     );
 
@@ -656,6 +712,7 @@ export class ResponsibleAiMultiAgentStack extends cdk.Stack {
     const raiAlertsTopic = new sns.Topic(this, "RaiAlertsTopic", {
       topicName: `${p}-alerts`,
       displayName: "Responsible AI Multi-Agent Alerts",
+      masterKey: encryptionKey,
     });
 
     // --- Audit Query API Lambda ---
@@ -834,13 +891,104 @@ export class ResponsibleAiMultiAgentStack extends cdk.Stack {
       logGroupName: `/${p}/audit`,
       retention: logs.RetentionDays.ONE_YEAR,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
+      encryptionKey: encryptionKey,
     });
 
     new logs.LogGroup(this, "DelegationLogGroup", {
       logGroupName: `/${p}/delegation-decisions`,
       retention: logs.RetentionDays.ONE_YEAR,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
+      encryptionKey: encryptionKey,
     });
+
+    // ================================================================
+    // cfn-nag suppressions for acknowledged warnings
+    // ================================================================
+
+    // W89: Lambda not in VPC — acknowledged limitation for reference implementation
+    // W92: Lambda missing ReservedConcurrentExecutions — not needed for reference impl
+    // W58: Lambda CloudWatch Logs — handled by AWSLambdaBasicExecutionRole
+    const allLambdas = [
+      fidelityCheckLambda, delegationValidatorLambda, contradictionDetectorLambda,
+      researcherInvokerLambda, resolverInvokerLambda, reviewerInvokerLambda,
+      requestInterceptor, responseInterceptor, fairnessMetricsLambda, auditQueryLambda,
+    ];
+    for (const fn of allLambdas) {
+      const cfnFn = fn.node.defaultChild as cdk.CfnResource;
+      cfnFn.addMetadata("cfn_nag", {
+        rules_to_suppress: [
+          { id: "W89", reason: "VPC deployment is not required for this reference implementation. Add VPC for production hardening." },
+          { id: "W92", reason: "ReservedConcurrentExecutions not needed for reference implementation with low traffic." },
+          { id: "W58", reason: "Lambda has AWSLambdaBasicExecutionRole which grants CloudWatch Logs permissions." },
+        ],
+      });
+    }
+
+    // W28: Explicit names — intentional for user-friendly resource identification
+    const namedResources = [
+      fidelityAlarm, trustViolationAlarm, fairnessDriftAlarm, guardrailInterventionAlarm,
+    ];
+    for (const res of namedResources) {
+      const cfnRes = res.node.defaultChild as cdk.CfnResource;
+      cfnRes.addMetadata("cfn_nag", {
+        rules_to_suppress: [
+          { id: "W28", reason: "Explicit alarm names are intentional for CloudWatch dashboard references and operational runbooks." },
+        ],
+      });
+    }
+
+    // W28 on DynamoDB table and Gateway role
+    (auditTable.node.defaultChild as cdk.CfnResource).addMetadata("cfn_nag", {
+      rules_to_suppress: [
+        { id: "W28", reason: "Explicit table name required for cross-stack references and audit query API." },
+      ],
+    });
+    (gatewayRole.node.defaultChild as cdk.CfnResource).addMetadata("cfn_nag", {
+      rules_to_suppress: [
+        { id: "W28", reason: "Explicit role name required for AgentCore Gateway trust policy." },
+      ],
+    });
+
+    // W12 on policies that use * for CloudWatch PutMetricData (no resource-level support)
+    const policiesWithWildcard = [
+      fidelityCheckLambda, contradictionDetectorLambda,
+      researcherInvokerLambda, resolverInvokerLambda, reviewerInvokerLambda,
+      fairnessMetricsLambda,
+    ];
+    for (const fn of policiesWithWildcard) {
+      try {
+        const policy = fn.node.findChild("ServiceRole").node.findChild("DefaultPolicy").node.defaultChild as cdk.CfnResource;
+        policy.addMetadata("cfn_nag", {
+          rules_to_suppress: [
+            { id: "W12", reason: "CloudWatch PutMetricData does not support resource-level permissions — * is required." },
+          ],
+        });
+      } catch (e) { /* policy may not exist */ }
+    }
+
+    // W76 on runtime execution roles — agent runtimes need broad Bedrock permissions
+    for (const rt of [supervisorRuntime, researcherRuntime, resolverRuntime, reviewerRuntime]) {
+      try {
+        const policy = rt.node.findChild("ExecutionRole").node.findChild("DefaultPolicy").node.defaultChild as cdk.CfnResource;
+        policy.addMetadata("cfn_nag", {
+          rules_to_suppress: [
+            { id: "W12", reason: "Bedrock InvokeModel requires foundation-model/* ARN pattern." },
+            { id: "W76", reason: "Agent runtime execution roles require multiple Bedrock permissions for model invocation and guardrail application." },
+          ],
+        });
+      } catch (e) { /* structure may differ */ }
+    }
+
+    // W76/W12 on orchestrator role
+    try {
+      const orchPolicy = orchestrator.node.findChild("Role").node.findChild("DefaultPolicy").node.defaultChild as cdk.CfnResource;
+      orchPolicy.addMetadata("cfn_nag", {
+        rules_to_suppress: [
+          { id: "W12", reason: "Step Functions orchestrator invokes multiple Lambda functions requiring broad resource access." },
+          { id: "W76", reason: "Orchestrator role requires permissions to invoke all governance Lambda functions in the chain." },
+        ],
+      });
+    } catch (e) { /* structure may differ */ }
 
     // ================================================================
     // Outputs
