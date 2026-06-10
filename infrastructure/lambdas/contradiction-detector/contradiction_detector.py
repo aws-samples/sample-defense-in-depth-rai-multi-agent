@@ -61,7 +61,7 @@ def check_contradictions(researcher_output: str, resolver_output: str, original_
 
     try:
         response = bedrock_runtime.invoke_model(
-            modelId="us.anthropic.claude-sonnet-4-20250514-v1:0",
+            modelId="us.anthropic.claude-sonnet-4-6",
             contentType="application/json",
             accept="application/json",
             body=json.dumps({
@@ -75,11 +75,21 @@ def check_contradictions(researcher_output: str, resolver_output: str, original_
         result = json.loads(response["body"].read())
         content = result.get("content", [{}])[0].get("text", "{}")
 
-        # Parse the JSON response
+        # Parse the JSON response — model may wrap in markdown code fences
         try:
-            parsed = json.loads(content)
+            # Strip markdown code fences if present
+            cleaned = content.strip()
+            if cleaned.startswith("```"):
+                # Remove opening fence (with optional language tag)
+                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3]
+            cleaned = cleaned.strip()
+
+            parsed = json.loads(cleaned)
             return parsed
         except json.JSONDecodeError:
+            logger.warning(f"Failed to parse model response: {content[:500]}")
             # If the model didn't return valid JSON, assume no contradiction
             return {
                 "has_contradiction": False,
