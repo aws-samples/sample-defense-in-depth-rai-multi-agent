@@ -14,7 +14,7 @@
     "destroy": "cdk destroy --all --force"
   },
   "dependencies": {
-    "aws-cdk-lib": "2.243.0",
+    "aws-cdk-lib": "2.260.0",
     "@aws-cdk/aws-bedrock-alpha": "2.243.0-alpha.0",
     "@aws-cdk/aws-bedrock-agentcore-alpha": "2.243.0-alpha.0",
     "constructs": "^10.0.0",
