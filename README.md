@@ -50,6 +50,7 @@ chmod +x scripts/setup-foundation.sh
 
 ## Prerequisites
 
+- AWS CLI v2 (required for `--cli-binary-format` flag used in verification commands)
 - AWS CDK v2 + Node.js 18+
 - Docker running (for agent container builds)
 - AWS account with Amazon Bedrock enabled (Claude Sonnet model access)
