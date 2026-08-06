@@ -240,7 +240,7 @@ make audit         # Queries the audit trail
 ## Cleanup
 
 ```bash
-make destroy
+make destroy  # Removes all deployed AWS resources and cleans up the stack
 ```
 
 ## Security
