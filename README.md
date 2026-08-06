@@ -242,6 +242,7 @@ make audit         # Queries the audit trail
 ```bash
 make destroy
 ```
+This command will cleaup all the deployed resources
 
 ## Security
 
