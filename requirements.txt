@@ -2,7 +2,7 @@
 # Actual agent dependencies are in agents/*/requirements.txt
 # This file aggregates them so the scanner can find them.
 
-strands-agents==0.3.2
+strands-agents==1.48.0
 bedrock-agentcore==1.0.3
 boto3==1.38.28
 aws-opentelemetry-distro==0.10.1
